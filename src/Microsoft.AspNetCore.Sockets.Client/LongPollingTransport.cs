@@ -2,12 +2,15 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
+using System.IO;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Threading.Tasks.Channels;
+using Microsoft.AspNetCore.Sockets.Internal;
 using Microsoft.Extensions.Internal;
 using Microsoft.Extensions.Logging;
 
@@ -23,7 +26,8 @@ namespace Microsoft.AspNetCore.Sockets.Client
         private readonly CancellationTokenSource _senderCts = new CancellationTokenSource();
         private readonly CancellationTokenSource _pollCts = new CancellationTokenSource();
 
-        private IPipelineConnection _pipeline;
+        private IChannelConnection<Message> _application;
+
         private Task _sender;
         private Task _poller;
 
@@ -39,19 +43,18 @@ namespace Microsoft.AspNetCore.Sockets.Client
         {
             _senderCts.Cancel();
             _pollCts.Cancel();
-            _pipeline?.Dispose();
         }
 
-        public Task StartAsync(Uri url, IPipelineConnection pipeline)
+        public Task StartAsync(Uri url, IChannelConnection<Message> application)
         {
-            _pipeline = pipeline;
+            _application = application;
 
-            // Schedule shutdown of the poller when the output is closed
-            pipeline.Output.Writing.ContinueWith(_ =>
-            {
-                _pollCts.Cancel();
-                return TaskCache.CompletedTask;
-            });
+            //// Schedule shutdown of the poller when the output is closed
+            //pipeline.Output.Writing.ContinueWith(_ =>
+            //{
+            //    _pollCts.Cancel();
+            //    return TaskCache.CompletedTask;
+            //});
 
             // Start sending and polling
             _poller = Poll(Utils.AppendPath(url, "poll"), _pollCts.Token);
@@ -80,62 +83,61 @@ namespace Microsoft.AspNetCore.Sockets.Client
                     }
                     else
                     {
-                        // Write the data to the output
-                        var buffer = _pipeline.Output.Alloc();
-                        var stream = new WriteableBufferStream(buffer);
-                        await response.Content.CopyToAsync(stream);
-                        await buffer.FlushAsync();
+                        var ms = new MemoryStream();
+                        await response.Content.CopyToAsync(ms);
+                        var message = new Message(ReadableBuffer.Create(ms.ToArray()).Preserve(), Format.Text, true);
+
+                        // TODO: cancellation token
+                        while (await _application.Output.WaitToWriteAsync())
+                        {
+                            if (_application.Output.TryWrite(message))
+                            {
+                                break;
+                            }
+                        }
                     }
                 }
-
-                // Polling complete
-                _pipeline.Output.Complete();
             }
             catch (Exception ex)
             {
                 // Shut down the output pipeline and log
                 _logger.LogError("Error while polling '{0}': {1}", pollUrl, ex);
-                _pipeline.Output.Complete(ex);
-                _pipeline.Input.Complete(ex);
+                // TODO: ?
+                // _application.Input.TryComplete(ex);
+                _application.Output.TryComplete(ex);
             }
         }
 
         private async Task SendMessages(Uri sendUrl, CancellationToken cancellationToken)
         {
-            using (cancellationToken.Register(() => _pipeline.Input.Complete()))
+            // TODO: ?
+            // using (cancellationToken.Register(() => _application.Input.Re.Input.Complete()))
             {
                 try
                 {
-                    while (!cancellationToken.IsCancellationRequested)
-                    {
-                        var result = await _pipeline.Input.ReadAsync();
-                        var buffer = result.Buffer;
-                        if (buffer.IsEmpty || result.IsCompleted)
+                     while (await _application.Input.WaitToReadAsync(cancellationToken))
+                     {
+                        Message message;
+                        if (! _application.Input.TryRead(out message))
                         {
-                            // No more data to send
-                            break;
+                            continue;
                         }
 
-                        // Create a message to send
-                        var message = new HttpRequestMessage(HttpMethod.Post, sendUrl);
-                        message.Headers.UserAgent.Add(DefaultUserAgentHeader);
-                        message.Content = new ReadableBufferContent(buffer);
+                        var request = new HttpRequestMessage(HttpMethod.Post, sendUrl);
+                        request.Headers.UserAgent.Add(DefaultUserAgentHeader);
+                        // TODO: remove ReadableBufferContent?
+                        request.Content = new ReadableBufferContent(message.Payload.Buffer);
 
-                        // Send it
-                        var response = await _httpClient.SendAsync(message);
+                        var response = await _httpClient.SendAsync(request);
                         response.EnsureSuccessStatusCode();
-
-                        _pipeline.Input.Advance(buffer.End);
                     }
-
-                    // Sending complete
-                    _pipeline.Input.Complete();
                 }
                 catch (Exception ex)
                 {
                     // Shut down the input pipeline and log
                     _logger.LogError("Error while sending to '{0}': {1}", sendUrl, ex);
-                    _pipeline.Input.Complete(ex);
+                    // TODO: ?
+                    // _application.Input.TryComplete(ex);
                 }
             }
         }

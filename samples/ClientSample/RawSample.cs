@@ -27,11 +27,10 @@ namespace ClientSample
             var logger = loggerFactory.CreateLogger<Program>();
 
             using (var httpClient = new HttpClient(new LoggingMessageHandler(loggerFactory, new HttpClientHandler())))
-            using (var pipelineFactory = new PipelineFactory())
             {
                 logger.LogInformation("Connecting to {0}", baseUrl);
                 var transport = new LongPollingTransport(httpClient, loggerFactory);
-                using (var connection = await Connection.ConnectAsync(new Uri(baseUrl), transport, httpClient, pipelineFactory, loggerFactory))
+                using (var connection = await Connection.ConnectAsync(new Uri(baseUrl), transport, httpClient, loggerFactory))
                 {
                     logger.LogInformation("Connected to {0}", baseUrl);
 
@@ -44,14 +43,15 @@ namespace ClientSample
                     };
 
                     // Ready to start the loops
-                    var receive = StartReceiving(loggerFactory.CreateLogger("ReceiveLoop"), connection, cts.Token);
-                    var send = StartSending(loggerFactory.CreateLogger("SendLoop"), connection, cts.Token);
+                    var receive = Task.FromException(new NotImplementedException()); // StartReceiving(loggerFactory.CreateLogger("ReceiveLoop"), connection, cts.Token);
+                    var send = Task.FromException(new NotImplementedException()); //StartSending(loggerFactory.CreateLogger("SendLoop"), connection, cts.Token);
 
                     await Task.WhenAll(receive, send);
                 }
             }
         }
 
+        /*
         private static async Task StartSending(ILogger logger, Connection connection, CancellationToken cancellationToken)
         {
             logger.LogInformation("Send loop starting");
@@ -65,7 +65,7 @@ namespace ClientSample
             logger.LogInformation("Send loop terminated");
         }
 
-        private static async Task StartReceiving(ILogger logger, Connection connection, CancellationToken cancellationToken)
+        private static Task StartReceiving(ILogger logger, Connection connection, CancellationToken cancellationToken)
         {
             logger.LogInformation("Receive loop starting");
             using (cancellationToken.Register(() => connection.Input.Complete()))
@@ -94,5 +94,6 @@ namespace ClientSample
             }
             logger.LogInformation("Receive loop terminated");
         }
+        */
     }
 }

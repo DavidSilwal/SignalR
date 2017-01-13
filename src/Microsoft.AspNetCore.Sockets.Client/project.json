@@ -22,7 +22,9 @@
     "compile": {
       "include": [
         "../Microsoft.AspNetCore.Sockets/IChannelConnection.cs",
-        "../Microsoft.AspNetCore.Sockets/Internal/ChannelConnection.cs"
+        "../Microsoft.AspNetCore.Sockets/Internal/ChannelConnection.cs",
+        "../Microsoft.AspNetCore.Sockets/Message.cs",
+        "../Microsoft.AspNetCore.Sockets/Format.cs"
       ]
     }
   },
