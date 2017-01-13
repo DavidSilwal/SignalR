@@ -6,6 +6,7 @@ using System.IO;
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
 using System.Security.Claims;
+using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Channels;
@@ -347,14 +348,14 @@ namespace Microsoft.AspNetCore.SignalR.Tests
                 await SendRequest_IgnoreReceive(firstConnection, adapter, "GroupSendMethod", "testGroup", "test");
                 // check that 'secondConnection' hasn't received the group send
                 Message message;
-                Assert.False(secondConnection.Transport.Output.TryRead(out message));
+                Assert.False(secondConnection.Transport.Output.In.TryRead(out message));
 
                 await SendRequest_IgnoreReceive(secondConnection, adapter, "GroupAddMethod", "testGroup");
 
                 await SendRequest(firstConnection, adapter, "GroupSendMethod", "testGroup", "test");
 
                 // check that 'firstConnection' hasn't received the group send
-                Assert.False(firstConnection.Transport.Output.TryRead(out message));
+                Assert.False(firstConnection.Transport.Output.In.TryRead(out message));
 
                 // check that 'secondConnection' has received the group send
                 var res = await ReadConnectionOutputAsync<InvocationDescriptor>(secondConnection);
@@ -490,7 +491,7 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             stream);
 
             var buffer = ReadableBuffer.Create(stream.ToArray()).Preserve();
-            await connection.Transport.Input.WriteAsync(new Message(buffer, Format.Binary, endOfMessage: true));
+            await connection.Transport.Input.Out.WriteAsync(new Message(buffer, Format.Binary, endOfMessage: true));
         }
 
         public async Task SendRequest_IgnoreReceive(ConnectionWrapper connection, IInvocationAdapter writer, string method, params object[] args)
@@ -498,13 +499,13 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             await SendRequest(connection, writer, method, args);
 
             // Consume the result
-            await connection.Transport.Output.ReadAsync();
+            await connection.Transport.Output.In.ReadAsync();
         }
 
         private async Task<T> ReadConnectionOutputAsync<T>(ConnectionWrapper connection)
         {
             // TODO: other formats?
-            var message = await connection.Transport.Output.ReadAsync();
+            var message = await connection.Transport.Output.In.ReadAsync();
             var serializer = new JsonSerializer();
             return serializer.Deserialize<T>(new JsonTextReader(new StreamReader(new MemoryStream(message.Payload.Buffer.ToArray()))));
         }
@@ -648,7 +649,7 @@ namespace Microsoft.AspNetCore.SignalR.Tests
 
                 Connection = new Connection(Guid.NewGuid().ToString(), Transport);
                 Connection.Metadata["formatType"] = format;
-                Connection.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.Name, Interlocked.Increment(ref _id).ToString()) }));
+                Connection.User = new ClaimsPrincipal(new GenericIdentity(Interlocked.Increment(ref _id).ToString()));
             }
 
             public void Dispose()
@@ -656,60 +657,71 @@ namespace Microsoft.AspNetCore.SignalR.Tests
                 Connection.Dispose();
             }
 
-            private class TestChannel<T> : IChannel<T>
+            private class TestChannel<T> : Channel<T>
             {
-                private IChannel<T> _channel;
+                private Channel<T> _channel;
+                private ReadableChannel<T> _readChannel;
                 private TaskCompletionSource<object> _tcs = new TaskCompletionSource<object>();
 
-                public TestChannel(IChannel<T> channel)
+                public TestChannel(Channel<T> channel)
                 {
                     _channel = channel;
+                    _readChannel = new TestReadableChannel(_channel.In, _tcs);
                 }
 
-                public Task Completion => _channel.Completion;
+                public override ReadableChannel<T> In
+                {
+                    get
+                    {
+                        return _readChannel;
+                    }
+                }
+
+                public override WritableChannel<T> Out
+                {
+                    get
+                    {
+                        return _channel.Out;
+                    }
+                }
 
                 public Task ReadingStarted => _tcs.Task;
 
-                public ValueAwaiter<T> GetAwaiter()
+                private class TestReadableChannel : ReadableChannel<T>
                 {
-                    return _channel.GetAwaiter();
-                }
+                    private ReadableChannel<T> _input;
+                    private TaskCompletionSource<object> _tcs = new TaskCompletionSource<object>();
 
-                public ValueTask<T> ReadAsync(CancellationToken cancellationToken = default(CancellationToken))
-                {
-                    _tcs.TrySetResult(null);
-                    return _channel.ReadAsync(cancellationToken);
-                }
+                    public TestReadableChannel(ReadableChannel<T> input, TaskCompletionSource<object> tcs)
+                    {
+                        _input = input;
+                        _tcs = tcs;
+                    }
 
-                public bool TryComplete(Exception error = null)
-                {
-                    return _channel.TryComplete(error);
-                }
+                    public override Task Completion
+                    {
+                        get
+                        {
+                            return _input.Completion;
+                        }
+                    }
 
-                public bool TryRead(out T item)
-                {
-                    return _channel.TryRead(out item);
-                }
+                    public override ValueTask<T> ReadAsync(CancellationToken cancellationToken = default(CancellationToken))
+                    {
+                        _tcs.TrySetResult(null);
+                        return _input.ReadAsync(cancellationToken);
+                    }
 
-                public bool TryWrite(T item)
-                {
-                    return _channel.TryWrite(item);
-                }
+                    public override bool TryRead(out T item)
+                    {
+                        return _input.TryRead(out item);
+                    }
 
-                public Task<bool> WaitToReadAsync(CancellationToken cancellationToken = default(CancellationToken))
-                {
-                    _tcs.TrySetResult(null);
-                    return _channel.WaitToReadAsync(cancellationToken);
-                }
-
-                public Task<bool> WaitToWriteAsync(CancellationToken cancellationToken = default(CancellationToken))
-                {
-                    return _channel.WaitToWriteAsync(cancellationToken);
-                }
-
-                public Task WriteAsync(T item, CancellationToken cancellationToken = default(CancellationToken))
-                {
-                    return _channel.WriteAsync(item, cancellationToken);
+                    public override Task<bool> WaitToReadAsync(CancellationToken cancellationToken = default(CancellationToken))
+                    {
+                        _tcs.TrySetResult(null);
+                        return _input.WaitToReadAsync(cancellationToken);
+                    }
                 }
             }
         }

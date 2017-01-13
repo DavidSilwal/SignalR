@@ -8,13 +8,13 @@ namespace Microsoft.AspNetCore.Sockets.Internal
 {
     public class ChannelConnection<T> : IChannelConnection<T>
     {
-        public IChannel<T> Input { get; }
-        public IChannel<T> Output { get; }
+        public Channel<T> Input { get; }
+        public Channel<T> Output { get; }
 
-        IReadableChannel<T> IChannelConnection<T>.Input => Input;
-        IWritableChannel<T> IChannelConnection<T>.Output => Output;
+        ReadableChannel<T> IChannelConnection<T>.Input => Input;
+        WritableChannel<T> IChannelConnection<T>.Output => Output;
 
-        public ChannelConnection(IChannel<T> input, IChannel<T> output)
+        public ChannelConnection(Channel<T> input, Channel<T> output)
         {
             Input = input;
             Output = output;
@@ -22,8 +22,8 @@ namespace Microsoft.AspNetCore.Sockets.Internal
 
         public void Dispose()
         {
-            Output.TryComplete();
-            Input.TryComplete();
+            Output.Out.TryComplete();
+            Input.Out.TryComplete();
         }
     }
 }
