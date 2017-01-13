@@ -6,6 +6,14 @@ using System.Threading.Tasks.Channels;
 
 namespace Microsoft.AspNetCore.Sockets.Internal
 {
+    public static class ChannelConnection
+    {
+        public static ChannelConnection<T> Create<T>(Channel<T> input, Channel<T> output)
+        {
+            return new ChannelConnection<T>(input, output);
+        }
+    }
+
     public class ChannelConnection<T> : IChannelConnection<T>
     {
         public Channel<T> Input { get; }

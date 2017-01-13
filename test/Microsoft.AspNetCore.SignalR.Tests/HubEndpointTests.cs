@@ -33,8 +33,6 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             {
                 var endPointTask = endPoint.OnConnectedAsync(connectionWrapper.Connection);
 
-                await connectionWrapper.ApplicationStartedReading;
-
                 // kill the connection
                 connectionWrapper.Dispose();
 
@@ -137,8 +135,6 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             {
                 var endPointTask = endPoint.OnConnectedAsync(connectionWrapper.Connection);
 
-                await connectionWrapper.ApplicationStartedReading;
-
                 var invocationAdapter = serviceProvider.GetService<InvocationAdapterRegistry>();
                 var adapter = invocationAdapter.GetInvocationAdapter("json");
 
@@ -165,8 +161,6 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             using (var connectionWrapper = new ConnectionWrapper())
             {
                 var endPointTask = endPoint.OnConnectedAsync(connectionWrapper.Connection);
-
-                await connectionWrapper.ApplicationStartedReading;
 
                 var invocationAdapter = serviceProvider.GetService<InvocationAdapterRegistry>();
                 var adapter = invocationAdapter.GetInvocationAdapter("json");
@@ -195,8 +189,6 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             {
                 var endPointTask = endPoint.OnConnectedAsync(connectionWrapper.Connection);
 
-                await connectionWrapper.ApplicationStartedReading;
-
                 var invocationAdapter = serviceProvider.GetService<InvocationAdapterRegistry>();
                 var adapter = invocationAdapter.GetInvocationAdapter("json");
 
@@ -222,8 +214,6 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             using (var connectionWrapper = new ConnectionWrapper())
             {
                 var endPointTask = endPoint.OnConnectedAsync(connectionWrapper.Connection);
-
-                await connectionWrapper.ApplicationStartedReading;
 
                 var invocationAdapter = serviceProvider.GetService<InvocationAdapterRegistry>();
                 var adapter = invocationAdapter.GetInvocationAdapter("json");
@@ -251,8 +241,6 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             {
                 var endPointTask = endPoint.OnConnectedAsync(connectionWrapper.Connection);
 
-                await connectionWrapper.ApplicationStartedReading;
-
                 var invocationAdapter = serviceProvider.GetService<InvocationAdapterRegistry>();
                 var adapter = invocationAdapter.GetInvocationAdapter("json");
 
@@ -278,8 +266,6 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             {
                 var endPointTask = endPoint.OnConnectedAsync(connectionWrapper.Connection);
 
-                await connectionWrapper.ApplicationStartedReading;
-
                 var invocationAdapter = serviceProvider.GetService<InvocationAdapterRegistry>();
                 var adapter = invocationAdapter.GetInvocationAdapter("json");
 
@@ -302,8 +288,6 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             {
                 var firstEndPointTask = endPoint.OnConnectedAsync(firstConnection.Connection);
                 var secondEndPointTask = endPoint.OnConnectedAsync(secondConnection.Connection);
-
-                await Task.WhenAll(firstConnection.ApplicationStartedReading, secondConnection.ApplicationStartedReading);
 
                 var invocationAdapter = serviceProvider.GetService<InvocationAdapterRegistry>();
                 var adapter = invocationAdapter.GetInvocationAdapter("json");
@@ -340,22 +324,20 @@ namespace Microsoft.AspNetCore.SignalR.Tests
                 var firstEndPointTask = endPoint.OnConnectedAsync(firstConnection.Connection);
                 var secondEndPointTask = endPoint.OnConnectedAsync(secondConnection.Connection);
 
-                await Task.WhenAll(firstConnection.ApplicationStartedReading, secondConnection.ApplicationStartedReading);
-
                 var invocationAdapter = serviceProvider.GetService<InvocationAdapterRegistry>();
                 var adapter = invocationAdapter.GetInvocationAdapter("json");
 
                 await SendRequest_IgnoreReceive(firstConnection, adapter, "GroupSendMethod", "testGroup", "test");
                 // check that 'secondConnection' hasn't received the group send
                 Message message;
-                Assert.False(secondConnection.Transport.Output.In.TryRead(out message));
+                Assert.False(secondConnection.Application.Input.TryRead(out message));
 
                 await SendRequest_IgnoreReceive(secondConnection, adapter, "GroupAddMethod", "testGroup");
 
                 await SendRequest(firstConnection, adapter, "GroupSendMethod", "testGroup", "test");
 
                 // check that 'firstConnection' hasn't received the group send
-                Assert.False(firstConnection.Transport.Output.In.TryRead(out message));
+                Assert.False(firstConnection.Application.Input.TryRead(out message));
 
                 // check that 'secondConnection' has received the group send
                 var res = await ReadConnectionOutputAsync<InvocationDescriptor>(secondConnection);
@@ -382,8 +364,6 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             {
                 var endPointTask = endPoint.OnConnectedAsync(connection.Connection);
 
-                await connection.ApplicationStartedReading;
-
                 var invocationAdapter = serviceProvider.GetService<InvocationAdapterRegistry>();
                 var writer = invocationAdapter.GetInvocationAdapter("json");
 
@@ -408,8 +388,6 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             {
                 var firstEndPointTask = endPoint.OnConnectedAsync(firstConnection.Connection);
                 var secondEndPointTask = endPoint.OnConnectedAsync(secondConnection.Connection);
-
-                await Task.WhenAll(firstConnection.ApplicationStartedReading, secondConnection.ApplicationStartedReading);
 
                 var invocationAdapter = serviceProvider.GetService<InvocationAdapterRegistry>();
                 var adapter = invocationAdapter.GetInvocationAdapter("json");
@@ -442,8 +420,6 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             {
                 var firstEndPointTask = endPoint.OnConnectedAsync(firstConnection.Connection);
                 var secondEndPointTask = endPoint.OnConnectedAsync(secondConnection.Connection);
-
-                await Task.WhenAll(firstConnection.ApplicationStartedReading, secondConnection.ApplicationStartedReading);
 
                 var invocationAdapter = serviceProvider.GetService<InvocationAdapterRegistry>();
                 var adapter = invocationAdapter.GetInvocationAdapter("json");
@@ -491,7 +467,7 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             stream);
 
             var buffer = ReadableBuffer.Create(stream.ToArray()).Preserve();
-            await connection.Transport.Input.Out.WriteAsync(new Message(buffer, Format.Binary, endOfMessage: true));
+            await connection.Application.Output.WriteAsync(new Message(buffer, Format.Binary, endOfMessage: true));
         }
 
         public async Task SendRequest_IgnoreReceive(ConnectionWrapper connection, IInvocationAdapter writer, string method, params object[] args)
@@ -499,13 +475,13 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             await SendRequest(connection, writer, method, args);
 
             // Consume the result
-            await connection.Transport.Output.In.ReadAsync();
+            await connection.Application.Input.ReadAsync();
         }
 
         private async Task<T> ReadConnectionOutputAsync<T>(ConnectionWrapper connection)
         {
             // TODO: other formats?
-            var message = await connection.Transport.Output.In.ReadAsync();
+            var message = await connection.Application.Input.ReadAsync();
             var serializer = new JsonSerializer();
             return serializer.Deserialize<T>(new JsonTextReader(new StreamReader(new MemoryStream(message.Payload.Buffer.ToArray()))));
         }
@@ -630,24 +606,20 @@ namespace Microsoft.AspNetCore.SignalR.Tests
         public class ConnectionWrapper : IDisposable
         {
             private static int _id;
-            private readonly TestChannel<Message> _input;
-
+            
             public Connection Connection { get; }
 
-            public ChannelConnection<Message> Transport { get; }
-
-            public Task ApplicationStartedReading => _input.ReadingStarted;
+            public IChannelConnection<Message> Application { get; }
 
             public ConnectionWrapper(string format = "json")
             {
                 var transportToApplication = Channel.CreateUnbounded<Message>();
                 var applicationToTransport = Channel.CreateUnbounded<Message>();
 
-                _input = new TestChannel<Message>(transportToApplication);
+                Application = ChannelConnection.Create(input: applicationToTransport, output: transportToApplication);
+                var transport = ChannelConnection.Create(input: transportToApplication, output: applicationToTransport);
 
-                Transport = new ChannelConnection<Message>(_input, applicationToTransport);
-
-                Connection = new Connection(Guid.NewGuid().ToString(), Transport);
+                Connection = new Connection(Guid.NewGuid().ToString(), transport);
                 Connection.Metadata["formatType"] = format;
                 Connection.User = new ClaimsPrincipal(new GenericIdentity(Interlocked.Increment(ref _id).ToString()));
             }
@@ -655,74 +627,6 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             public void Dispose()
             {
                 Connection.Dispose();
-            }
-
-            private class TestChannel<T> : Channel<T>
-            {
-                private Channel<T> _channel;
-                private ReadableChannel<T> _readChannel;
-                private TaskCompletionSource<object> _tcs = new TaskCompletionSource<object>();
-
-                public TestChannel(Channel<T> channel)
-                {
-                    _channel = channel;
-                    _readChannel = new TestReadableChannel(_channel.In, _tcs);
-                }
-
-                public override ReadableChannel<T> In
-                {
-                    get
-                    {
-                        return _readChannel;
-                    }
-                }
-
-                public override WritableChannel<T> Out
-                {
-                    get
-                    {
-                        return _channel.Out;
-                    }
-                }
-
-                public Task ReadingStarted => _tcs.Task;
-
-                private class TestReadableChannel : ReadableChannel<T>
-                {
-                    private ReadableChannel<T> _input;
-                    private TaskCompletionSource<object> _tcs = new TaskCompletionSource<object>();
-
-                    public TestReadableChannel(ReadableChannel<T> input, TaskCompletionSource<object> tcs)
-                    {
-                        _input = input;
-                        _tcs = tcs;
-                    }
-
-                    public override Task Completion
-                    {
-                        get
-                        {
-                            return _input.Completion;
-                        }
-                    }
-
-                    public override ValueTask<T> ReadAsync(CancellationToken cancellationToken = default(CancellationToken))
-                    {
-                        _tcs.TrySetResult(null);
-                        return _input.ReadAsync(cancellationToken);
-                    }
-
-                    public override bool TryRead(out T item)
-                    {
-                        return _input.TryRead(out item);
-                    }
-
-                    public override Task<bool> WaitToReadAsync(CancellationToken cancellationToken = default(CancellationToken))
-                    {
-                        _tcs.TrySetResult(null);
-                        return _input.WaitToReadAsync(cancellationToken);
-                    }
-                }
             }
         }
     }
